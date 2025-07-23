@@ -1,5 +1,4 @@
-Earthbound Battle Backgrounds JS
-============================================
+# Earthbound Battle Backgrounds JS
 
 Earthbound Battle Background JS is exactly what its name implies: the battle
 backgrounds from the SNES RPG Earthbound/Mother 2, rendered entirely in client-side
@@ -14,8 +13,8 @@ is a Java/Android implementation.
 
 Every battle background is composed of two layers, each with 327 possible
 styles (including "blank"/zero). The layer styles can be interchanged, such that
-[Layer 1: 50 and Layer 2: 300](https://gjtorikian.com/Earthbound-Battle-Backgrounds-JS/?layer1=50&layer2=300)
-is the same as [Layer 1: 300 and Layer 2: 50](https://gjtorikian.com/Earthbound-Battle-Backgrounds-JS/?layer1=300&layer2=50).
+[Layer 1: 50 and Layer 2: 300](https://gjtorikian.online/Earthbound-Battle-Backgrounds-JS/?layer1=50&layer2=300)
+is the same as [Layer 1: 300 and Layer 2: 50](https://gjtorikian.online/Earthbound-Battle-Backgrounds-JS/?layer1=300&layer2=50).
 Thus, there are C(n,r) = 52,650 possible different background combinations. Obviously,
 this many don't exist in the game--the SNES's graphical capabilities only allow it to
 properly render 3,176 of these combinations, and of those, only 225 are ever used.
@@ -31,23 +30,23 @@ Offset (y, t) = A sin ( F*y + S*t )
 
 where:
 
-*  _y_ is the vertical coordinate being transformed
-*  _t_ is time that's elapsed
-*  _A_ is the amplitude
-*  _F_ is the frequency
-*  _S_ is the speed or frameskip of the transformation
+- _y_ is the vertical coordinate being transformed
+- _t_ is time that's elapsed
+- _A_ is the amplitude
+- _F_ is the frequency
+- _S_ is the speed or frameskip of the transformation
 
 Offest refers to the _y_ direction of the shift at a given time _t_.
 
 There are also three types of distortions that use the result of the Offset
 function:
 
-*  Horizontal translations, where each line is shifted left by the given number
-of pixels
-*  Horizontal interlaced translations, where every other line is shifted right
-by the given number of pixels
-*  Vertical compression translations, where each line is shifted up or down by
-the given number of pixels
+- Horizontal translations, where each line is shifted left by the given number
+  of pixels
+- Horizontal interlaced translations, where every other line is shifted right
+  by the given number of pixels
+- Vertical compression translations, where each line is shifted up or down by
+  the given number of pixels
 
 Different backgrounds use different distortion effects.
 
@@ -63,7 +62,7 @@ you full credit!
 
 Make sure you have Node.js and NPM on your system. Then:
 
-``` bash
+```bash
 npm install
 npm run watch
 npm start
@@ -84,8 +83,8 @@ I am entirely indebted to Mr. Accident of forum.starmen.net for the original
 battle background generation code, which was a C# project that uses the battle
 backgrounds as Windows screensavers. He also provided me with help along the
 way, and as far as I'm aware, he discovered the math behind it all, including
-the entire Offset function calculation. *This port would be nothing without
-him.*
+the entire Offset function calculation. _This port would be nothing without
+him._
 
 In 2016, @kdex [rewrote](https://github.com/kdex/earthbound-battle-backgrounds) much of my shitty JS into nice and clean ES2016 code, for which I am grateful. As of [`dc877f33`](https://github.com/gjtorikian/Earthbound-Battle-Backgrounds-JS/commit/dc877f33e5637291c7aa93c75dd1e5d615aca567), the entirety of his modifications have been brought over here.
 

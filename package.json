@@ -17,6 +17,6 @@
     "watch": "vite build --watch"
   },
   "engines": {
-    "node": ">= 0.8.0"
+    "node": ">= 24.0.0"
   }
 }

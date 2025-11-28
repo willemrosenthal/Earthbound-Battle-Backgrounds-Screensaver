@@ -48,7 +48,7 @@ export default class Engine {
       }
     }
     if (frameID > 0) {
-      global.cancelAnimationFrame(frameID)
+      cancelAnimationFrame(frameID)
     }
     drawFrame()
   }

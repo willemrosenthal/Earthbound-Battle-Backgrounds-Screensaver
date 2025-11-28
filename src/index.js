@@ -1,14 +1,12 @@
 import Rom from "./rom/rom";
-import data from "../data/truncated_backgrounds.dat";
+import backgroundData from "../data/truncated_backgrounds.dat?uint8array&base64";
 import Engine from "./engine";
 import BackgroundLayer from "./rom/background_layer";
-const backgroundData = new Uint8Array(
-  Array.from(data).map(x => x.charCodeAt(0))
-);
 
-export const ROM = new Rom(backgroundData);
+const ROM = new Rom(backgroundData);
+globalThis.ROM = ROM;
 
-var setupEngine = (exports.setupEngine = function setupEngine() {
+var setupEngine = (function setupEngine() {
   let params = getJsonFromUrl();
   let loader = null;
 
@@ -43,5 +41,6 @@ var setupEngine = (exports.setupEngine = function setupEngine() {
   document.engine = engine;
   document.engine.animate(debug);
 });
+globalThis.setupEngine = setupEngine;
 
 setupEngine();

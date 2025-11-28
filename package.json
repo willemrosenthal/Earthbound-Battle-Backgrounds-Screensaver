@@ -10,9 +10,9 @@
   },
   "main": "dist/index.js",
   "scripts": {
-    "compile": "vite build",
+    "build": "vite build",
     "lint": "standard *.js src/**/*.js --fix",
-    "prepublishOnly": "npm run compile",
+    "prepublishOnly": "npm run build",
     "start": "vite",
     "watch": "vite build --watch"
   },

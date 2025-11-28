@@ -20,7 +20,7 @@ jobs:
           node: true
 
       - name: Build static files
-        run: npm run compile
+        run: npm run build
 
       - name: Upload static files as artifact
         id: deployment

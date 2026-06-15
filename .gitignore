@@ -4,3 +4,9 @@ sample/
 .DS_Store
 packages/
 *.log
+
+# Xcode / screensaver build artifacts
+EarthboundBattle/build/
+EarthboundBattle/ebbg-preview
+**/xcuserdata/
+DerivedData/

@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Products/Release/EarthboundBattle.saver/Contents/MacOS/EarthboundBattle'
+relocations:     []
+...

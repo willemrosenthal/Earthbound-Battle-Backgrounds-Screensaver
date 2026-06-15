@@ -1,38 +1,14 @@
 import Cocoa
 
-// Renders a single static preview frame for a background and caches it. Used by
-// the Options sheet's thumbnail grid. All graphics/palettes are decompressed
-// eagerly in `Rom.init`, so this is cheap and safe to call on the main thread.
-enum BackgroundThumbnail {
-    private static var cache: [Int: NSImage] = [:]
-
-    static func image(for index: Int) -> NSImage {
-        if let cached = cache[index] { return cached }
-        // One layer, ticks 0, full alpha, erase — mirrors EarthboundBattleView.makeImage().
-        var dst = [UInt8](repeating: 0, count: SNES_WIDTH * SNES_HEIGHT * 4)
-        let layer = BackgroundLayer(entry: index, rom: Rom.shared)
-        layer.overlayFrame(&dst, letterbox: 0, ticks: 0, alpha: 1, erase: true)
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        let image: NSImage
-        if let provider = CGDataProvider(data: Data(dst) as CFData),
-           let cg = CGImage(width: SNES_WIDTH, height: SNES_HEIGHT, bitsPerComponent: 8, bitsPerPixel: 32,
-                            bytesPerRow: SNES_WIDTH * 4, space: colorSpace, bitmapInfo: bitmapInfo,
-                            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) {
-            image = NSImage(cgImage: cg, size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
-        } else {
-            image = NSImage(size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
-        }
-        cache[index] = image
-        return image
-    }
-}
-
-// One cell in the preview grid: a thumbnail above an "on/off" checkbox labelled
-// with the background's index. Built programmatically (no nib), so the view
-// hierarchy is constructed in loadView(). Cells are recycled, so configure(...)
-// must fully reset state and rebind the toggle to the index it now represents.
+// One cell in the preview grid: an animated thumbnail above an "on/off" checkbox
+// labelled with the background's index. Built programmatically (no nib), so the
+// view hierarchy is constructed in loadView(). Cells are recycled, so configure()
+// fully rebuilds render state and rebinds the toggle to the index it now shows.
+//
+// A static single frame can't distinguish backgrounds that differ only in their
+// distortion/palette-cycle motion (131 of 327 share a graphics+palette), and
+// palette-cycle-driven backgrounds look flat/dark when frozen — so each visible
+// cell animates, driven by the controller's timer calling renderFrame().
 final class BackgroundThumbnailItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("BackgroundThumbnailItem")
 
@@ -40,6 +16,12 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
     private let checkbox = NSButton()
     private var index = 0
     private var onToggle: ((Int, Bool) -> Void)?
+
+    // Live animation state. The palette cycle is stateful (it advances on every
+    // overlayFrame call), so we keep one layer per cell and step it each frame.
+    private var layer: BackgroundLayer?
+    private var dst = [UInt8](repeating: 0, count: SNES_WIDTH * SNES_HEIGHT * 4)
+    private var tick: Double = 0
 
     override func loadView() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 96, height: 112))
@@ -66,9 +48,32 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
     func configure(index: Int, enabled: Bool, onToggle: @escaping (Int, Bool) -> Void) {
         self.index = index
         self.onToggle = onToggle
-        thumb.image = BackgroundThumbnail.image(for: index)
         checkbox.title = "#\(index)"
         checkbox.state = enabled ? .on : .off
+        layer = BackgroundLayer(entry: index, rom: Rom.shared)
+        tick = 0
+        renderFrame() // paint an initial frame so the cell isn't blank
+    }
+
+    /// Renders the current animation frame and advances the clock. Called once on
+    /// configure, then on each tick of the controller's timer (visible cells only).
+    func renderFrame() {
+        guard let layer = layer else { return }
+        layer.overlayFrame(&dst, letterbox: 0, ticks: tick, alpha: 1, erase: true)
+        tick += 1
+        thumb.image = Self.image(from: dst)
+    }
+
+    private static func image(from dst: [UInt8]) -> NSImage {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let provider = CGDataProvider(data: Data(dst) as CFData),
+              let cg = CGImage(width: SNES_WIDTH, height: SNES_HEIGHT, bitsPerComponent: 8, bitsPerPixel: 32,
+                               bytesPerRow: SNES_WIDTH * 4, space: colorSpace, bitmapInfo: bitmapInfo,
+                               provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
+            return NSImage(size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
+        }
+        return NSImage(cgImage: cg, size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
     }
 
     @objc private func toggled() {

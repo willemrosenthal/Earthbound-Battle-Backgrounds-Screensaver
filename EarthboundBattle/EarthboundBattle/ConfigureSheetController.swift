@@ -16,6 +16,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     private let frameSkipField = NSTextField()
     private let frameSkipStepper = NSStepper()
     private var collectionView: NSCollectionView!
+    private var animationTimer: Timer?
 
     // Working copy of disabled indices; committed to defaults only on OK.
     private var disabled: Set<Int> = []
@@ -36,6 +37,26 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         window.title = "Earthbound Battle Backgrounds"
         buildUI()
         loadValues()
+        startAnimating()
+    }
+
+    deinit {
+        animationTimer?.invalidate()
+    }
+
+    // Animates the previews currently on screen. Each frame re-renders only the
+    // visible cells (~20–40), and the work is skipped entirely while the Options
+    // window is hidden, so it costs nothing when the sheet isn't up.
+    private func startAnimating() {
+        let timer = Timer(timeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.window.isVisible else { return }
+            for item in self.collectionView.visibleItems() {
+                (item as? BackgroundThumbnailItem)?.renderFrame()
+            }
+        }
+        // .common so it keeps firing during modal/tracking run-loop modes.
+        RunLoop.main.add(timer, forMode: .common)
+        animationTimer = timer
     }
 
     private func defaults() -> ScreenSaverDefaults? {

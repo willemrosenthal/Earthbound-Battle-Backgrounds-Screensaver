@@ -1,286 +1,239 @@
-# Plan: Earthbound Battle Backgrounds → macOS Screensaver (`.saver`)
+# Plan: Earthbound Battle Backgrounds → **fully native** macOS Screensaver (`.saver`)
 
-> Goal: Turn this JS Canvas app into a native macOS screensaver bundle (`.saver`)
-> that renders the battle backgrounds and, on a user-configurable timer, randomly
-> picks a new combination of layers/effects every X seconds. Configuration UI shows
-> up when you click **Options…** for the screensaver in System Settings.
-
----
-
-## TL;DR of the strategy
-
-The app is **pure client-side JavaScript** rendering to a 2D `<canvas>`, with all the
-SNES ROM data bundled in (`data/truncated_backgrounds.dat`). The animation runs itself
-via `requestAnimationFrame`. There is already random-layer and "endless random" logic
-in [public/assets/form.js](public/assets/form.js) we can reuse.
-
-The cheapest path is **not** to rewrite the rendering engine in Swift. It's to wrap the
-existing JS in a tiny native screensaver bundle that hosts a `WKWebView` (an embedded
-browser view) loading a stripped-down local copy of the app. A native `Timer` ticks every
-X seconds and tells the page to randomize.
-
-**BUT** there is one big risk that decides whether this approach is even viable, so the
-plan starts with a throwaway spike to prove it before we build anything real.
+> Goal: A 100% native Swift screensaver bundle (`.saver`). No web view, no
+> JavaScript, no embedded browser, no network. We port the rendering engine
+> directly to Swift and draw with Core Graphics. On a user-configurable timer it
+> randomly picks a new background combination every X seconds. The interval is
+> editable via **Options…** in System Settings → Screen Saver.
 
 ---
 
-## ⚠️ The one risk that drives everything: Milestone 0 (go / no-go spike)
+## Why native (and why this is actually the _easy_ version)
 
-On modern macOS (you're on Darwin 25.5 ≈ macOS 26), screensavers run inside a heavily
-**sandboxed `legacyScreenSaver` process**. `WKWebView` runs its actual web content in
-separate helper (XPC) processes, and those don't always spawn under the screensaver
-sandbox — the common failure is a **blank/white screen** with no error. This is the
-single tightest constraint in the project. Everything else (config sheet, timer,
-packaging) is standard and only matters if rendering works at all.
+The original WKWebView approach carried a real risk of a blank screen inside the
+sandboxed `legacyScreenSaver` process. Going native removes that risk entirely.
 
-So before writing real code, do a ~30-minute throwaway spike:
+The good news: **the rendering engine has no web dependency.** It's pure,
+deterministic math over a single 121 KB binary blob (`truncated_backgrounds.dat`):
 
-1. Make a trivial `ScreenSaverView` subclass with **no web content** — just fill the
-   view with a solid color or draw a moving rectangle. Confirms a bare `.saver` even
-   installs and runs on your macOS version.
-2. Add a `WKWebView` (created in `init(frame:isPreview:)`, **not** in `animateOneFrame`)
-   and `loadFileURL(...)` a local HTML file containing a simple animated colored canvas.
-   - Set `webView.isInspectable = true`.
-   - Implement the `WKNavigationDelegate` `didFail` / `didFailProvisionalNavigation`
-     callbacks and `NSLog` from them, so a blank screen tells you _why_ instead of
-     failing silently.
-3. Test it **two** ways, because the System Settings preview pane caches aggressively and
-   lies:
-   - In **System Settings → Screen Saver** preview, and
-   - By running the real engine directly:
-     `/System/Library/CoreServices/ScreenSaverEngine.app`
+- It reads bytes from that blob, decompresses some chunks, builds 8×8 tiles,
+  applies a 16-color palette, and produces a **256×224 RGBA pixel buffer**.
+- The animation is a per-scanline sine distortion: `offset(y,t) = A·sin(F·y + S·t)`.
+- No GPU shaders. No threads. ~57k pixels × 2 layers at 30 fps — trivial for a CPU.
 
-**Decision gate:**
-
-- ✅ **Spike renders the animated canvas** → proceed with the WKWebView wrapper plan
-  below (Milestones 1–6). This is the good case and most of the rest is routine.
-- ❌ **Spike is blank** after trying the known workarounds (see Appendix A) → the
-  fallback is a **native Swift/Metal port of the distortion engine**, which is a
-  genuinely larger, different project. **Stop and bring this back as a decision** —
-  don't silently pivot.
+So we (1) translate ~10 small JS files to Swift, (2) draw the resulting pixel
+buffer into the screensaver view scaled up with nearest-neighbor (crisp pixels),
+(3) add a timer + an options sheet. That's the whole project.
 
 ---
 
-## Architecture (assuming the spike passes)
+## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│  EarthboundBBG.saver  (Cocoa bundle)         │
-│                                              │
-│  ┌────────────────────────────────────────┐ │
-│  │ EBBGScreenSaverView : ScreenSaverView  │ │   Swift/Obj-C
-│  │  - hosts a WKWebView (fills the view)  │ │
-│  │  - Timer → evaluateJavaScript(...)     │ │
-│  │  - hasConfigureSheet / configureSheet  │ │
-│  │  - reads interval from ScreenSaverDefaults
-│  └────────────────────────────────────────┘ │
-│                    │ loads                    │
-│  ┌────────────────────────────────────────┐ │
-│  │ Resources/web/  (vite build output)    │ │   JS (reused)
-│  │  - screensaver.html (minimal, no forms)│ │
-│  │  - bundled engine + ROM data           │ │
-│  │  - exposes window.EBBG.randomize()     │ │
-│  └────────────────────────────────────────┘ │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  EarthboundBBG.saver  (Cocoa bundle, 100% Swift)               │
+│                                                                │
+│  EBBGScreenSaverView : ScreenSaverView                         │
+│    • owns two BackgroundLayer instances (layer1 + layer2)      │
+│    • animateOneFrame(): advance tick → render → setNeedsDisplay│
+│    • draw(_:): blit RGBA buffer → CGImage → fill bounds        │
+│                (interpolationQuality = .none → crisp pixels)   │
+│    • Timer every X s → randomize() picks new layer pair        │
+│    • hasConfigureSheet / configureSheet → interval slider      │
+│    • interval persisted via ScreenSaverDefaults                │
+│                                                                │
+│  Engine (ported from JS, no UI):                               │
+│    Rom ── Block ── decompress()                                │
+│      ├─ BattleBackground   (17-byte struct parse)              │
+│      ├─ BackgroundGraphics ─ RomGraphics (tiles, draw)         │
+│      ├─ BackgroundPalette  (15-bit SNES color → RGBA)          │
+│      ├─ PaletteCycle       (palette animation)                 │
+│      ├─ DistortionEffect   (17-byte effect params)             │
+│      └─ Distorter          (sine scanline offset)              │
+│                                                                │
+│  Resources/                                                    │
+│    └─ truncated_backgrounds.dat   (121 KB, bundled as-is)      │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Two halves: a thin **native shell** (timer + config + window plumbing) and the **reused
-JS renderer**, talking through one tiny bridge call (`window.EBBG.randomize()`).
+---
+
+## The port map (JS → Swift)
+
+Each current JS file maps to one Swift type. The translation is mechanical; the
+only thing to be careful about is **integer width / overflow semantics** (see the
+"Gotchas" section). Order them so each compiles before the next.
+
+| JS file (`src/rom/…`)    | Swift type           | What it does                                                                                                                |
+| ------------------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `rom.js` (free fns)      | `Rom` + helpers      | Holds the `[UInt8]` data blob; `decompress`, `getCompressedSize`, `snesToHex`, `REVERSED_BYTES`; builds all objects on init |
+| `block.js`               | `Block`              | Cursor into the blob: `readInt16` (reads **one byte** — see gotcha), `readInt32`, `readDoubleShort`, `decompress`           |
+| `battle_background.js`   | `BattleBackground`   | Parses a 17-byte entry (graphics idx, palette idx, bpp, cycle params, effect bytes)                                         |
+| `background_palette.js`  | `BackgroundPalette`  | 15-bit SNES BGR → 32-bit RGBA colors                                                                                        |
+| `palette_cycle.js`       | `PaletteCycle`       | Animates palette indices over time (types 1/2/3)                                                                            |
+| `rom_graphics.js`        | `RomGraphics`        | Decodes 2bpp/4bpp tiles, draws 32×32 tile grid into the 256×256 buffer                                                      |
+| `background_graphics.js` | `BackgroundGraphics` | Loads + decompresses graphics & arrangement, calls `RomGraphics.draw`                                                       |
+| `distortion_effect.js`   | `DistortionEffect`   | Parses 17-byte effect params (amplitude, frequency, compression, speed, accelerations)                                      |
+| `distorter.js`           | `Distorter`          | The visual effect: sine offset per scanline; horizontal / interlaced / vertical modes                                       |
+| `background_layer.js`    | `BackgroundLayer`    | Ties graphics+palette+distorter; `overlayFrame()` renders one layer into the shared buffer                                  |
+| `engine.js`              | folded into the view | Composites the two layers (alpha blend) and advances `tick` by `frameSkip`                                                  |
+
+Files we **drop** (web-only): `index.js`, everything in `public/assets/` (forms,
+GIF maker, analytics, history), `index.html`, Vite config. The suggested-layers
+list in `form.js` is optional flavor we can port later if wanted.
 
 ---
 
-## Milestone 1 — Build a stripped, self-contained web bundle
+## Rendering: how the pixels reach the screen
 
-The current `index.html` is a full website (forms, GitHub buttons, history adapter,
-Google Analytics, external CDN CSS). A screensaver needs none of that, and a sandboxed
-screensaver phoning out to `google-analytics.com` / `unpkg.com` is both likely blocked
-and wrong. Strip to the essentials.
+1. The engine fills a buffer of `256 × 224` pixels. JS stores it as `Int16Array`
+   (RGBA, stride 1024). In Swift use a `[UInt8]` (or `UnsafeMutableBufferPointer`)
+   of `256*224*4`, clamping each channel to 0…255 on write.
+2. Each frame, wrap that buffer in a `CGImage`:
+   - `CGColorSpaceCreateDeviceRGB()`, `CGImageAlphaInfo.premultipliedLast` (RGBA),
+     `bitsPerComponent: 8`, `bytesPerRow: 256*4`, via a `CGDataProvider`.
+3. In `draw(_ rect:)`:
+   - `context.interpolationQuality = .none` ← **critical** for crisp retro pixels.
+   - Draw the CGImage stretched to fill the view bounds (optionally letterboxed to
+     keep the 8:7 / chosen aspect ratio with black bars).
 
-1. Create `screensaver.html`: just a fullscreen `<canvas>` and a `<script type="module">`
-   that boots the engine — no forms, no analytics, no external `<link>`/`<script>` CDNs.
-2. Create a small entry module (e.g. `src/screensaver.js`) that:
-   - Imports `Rom`, `Engine`, `BackgroundLayer` (same as [src/index.js](src/index.js)).
-   - Boots with a random layer pair.
-   - Exposes a global the native side can call:
-     ```js
-     window.EBBG = {
-       randomize() {
-         const l1 = Math.floor(Math.random() * 327);
-         const l2 = Math.floor(Math.random() * 327);
-         // rebuild layers + restart engine with new layers/aspect/frameskip
-       },
-     };
-     ```
-     (Reuse the random logic from [public/assets/form.js](public/assets/form.js):
-     `setRandomLayer` and the engine re-init pattern in `setupDropdownPushStates`.)
-3. **Pixel scaling:** the canvas is 256×224. To fill a Retina display without looking
-   like mush, scale up with CSS `image-rendering: pixelated` (the engine already sets
-   `imageSmoothingEnabled = false`, which is correct). Set body background black and
-   center/letterbox the canvas.
-4. Configure Vite to build this as a **self-contained** bundle (relative asset paths,
-   single output dir, ROM data inlined as it already is via the `?uint8array&base64`
-   import). Output to something like `dist-saver/`.
-5. **Verify in a plain browser first** (`open dist-saver/screensaver.html` via a local
-   file server) that it animates and that calling `window.EBBG.randomize()` in the
-   console swaps the background. Debugging here is 10× easier than inside a screensaver.
-
-**Outcome:** a `dist-saver/` folder that animates standalone and exposes one randomize
-function.
+This is plenty fast on the CPU; no Metal required. (If we ever wanted it, a Metal
+texture upload is a drop-in upgrade, but it's unnecessary here.)
 
 ---
 
-## Milestone 2 — Create the Xcode screensaver project
+## Milestones
 
-In Xcode:
+### Milestone 1 — Xcode project + "hello, moving rectangle"
 
-1. **File → New → Project**.
-2. Choose the **macOS** tab, then the **Screen Saver** template.
-   - Note: the exact category/location of this template moves between Xcode versions —
-     look under the macOS templates; don't trust a hardcoded menu path. If you can't find
-     it, search "Screen Saver" in the template chooser.
-3. Name it e.g. `EarthboundBBG`. Pick Swift as the language.
-   - This generates a `ScreenSaverView` subclass and an `Info.plist` pre-wired with
-     `NSPrincipalClass` pointing at your view.
-4. Build once (⌘B) to confirm it compiles, producing a `.saver` bundle in
-   `~/Library/Developer/Xcode/DerivedData/.../Build/Products/Debug/`.
+1. **File → New → Project**, macOS tab, **Screen Saver** template (search "Screen
+   Saver" in the chooser if the category isn't obvious — its location moves between
+   Xcode versions). Language: **Swift**. Name it `EarthboundBBG`.
+2. This generates a `ScreenSaverView` subclass + an `Info.plist` with
+   `NSPrincipalClass` already wired to your view.
+3. Replace the generated `draw`/`animateOneFrame` with a moving colored rectangle.
+   Build (⌘B), then **install and verify** (see "Install & test loop" below).
+   - This proves the toolchain + install path before any porting work.
 
----
+### Milestone 2 — Bundle the data + load it
 
-## Milestone 3 — Host the WKWebView and load the bundle
-
-In the generated `ScreenSaverView` subclass:
-
-1. Add the web bundle to the Xcode project: drag `dist-saver/` into the project, choose
-   **"Create folder references"** (blue folder, preserves structure) and add it to the
-   target's **Copy Bundle Resources** build phase. It lands in `…/Contents/Resources/`.
-2. In `init(frame:isPreview:)`:
-   - Create the `WKWebView`, add it as a subview pinned to fill (`autoresizingMask` or
-     Auto Layout).
-   - Resolve the local HTML:
-     ```swift
-     let webDir = Bundle(for: type(of: self)).url(forResource: "web", withExtension: nil)!
-     let indexURL = webDir.appendingPathComponent("screensaver.html")
-     webView.loadFileURL(indexURL, allowingReadAccessTo: webDir)
-     ```
-   - Set `webView.isInspectable = true` (keep during dev), and a `WKNavigationDelegate`
-     that `NSLog`s failures.
-3. Make the view's background black so any letterboxing looks intentional.
-
-**Test the same two ways** as the spike (System Settings preview _and_
-`ScreenSaverEngine.app`).
-
----
-
-## Milestone 4 — The randomize timer
-
-1. Add a property for the interval (seconds), default e.g. 10.
-2. In `startAnimation()`:
-   - Call `super.startAnimation()`.
-   - **Re-read** the interval from defaults here (so a changed setting takes effect on
-     the next run without reinstalling).
-   - Schedule a `Timer.scheduledTimer(withTimeInterval: interval, repeats: true)` whose
-     handler calls:
-     ```swift
-     webView.evaluateJavaScript("window.EBBG && window.EBBG.randomize()")
-     ```
-3. In `stopAnimation()`: invalidate the timer and call `super.stopAnimation()`.
-
-Keeping the interval in Swift (not baked into a query param) means the config sheet can
-change it cleanly.
-
-> Note: we do **not** need to drive frames from `animateOneFrame()` — the JS engine
-> animates itself via `requestAnimationFrame` inside the WebView. The native timer is
-> only for the every-X-seconds _randomization_.
-
----
-
-## Milestone 5 — The configuration (Options…) sheet
-
-This is the "edit the screensaver in System Settings" UI.
-
-1. Override:
+1. Drag `data/truncated_backgrounds.dat` into the project; add to the target's
+   **Copy Bundle Resources**.
+2. Load at startup:
    ```swift
-   override var hasConfigureSheet: Bool { true }
-   override var configureSheet: NSWindow? { /* return the options window */ }
+   let url = Bundle(for: type(of: self)).url(forResource: "truncated_backgrounds", withExtension: "dat")!
+   let bytes = [UInt8](try! Data(contentsOf: url))
    ```
-2. Build a small window/panel (programmatically or a `.xib`) with:
-   - A field/stepper/slider for **"Pick a new background every \_\_\_ seconds"**.
-   - (Optional, nice-to-have) toggles for aspect ratio / frameskip randomization.
-   - **OK** and **Cancel** buttons; OK closes the sheet with
-     `NSApp.endSheet(window)` / modern equivalent.
-3. Persist with `ScreenSaverDefaults`:
+3. Verify the byte count is 121,056 with an `NSLog`. (Cheap sanity check that the
+   resource is actually in the bundle — a common screensaver footgun.)
+
+### Milestone 3 — Port the engine (the bulk of the work)
+
+Port the files in the order in the table above. Strategy to keep it sane:
+
+1. Port `Rom` + `Block` + `decompress` first; that's the foundation everything
+   reads through.
+2. Port `BattleBackground`, `BackgroundPalette`, `RomGraphics`,
+   `BackgroundGraphics`, `PaletteCycle` — enough to render **one static frame** of
+   a single layer (skip distortion at first).
+3. **Checkpoint:** render layer entry `1` (or any known-good index) as a static
+   image. Compare it visually against the live web app at
+   `?layer1=<n>&layer2=0` to confirm the tile/palette decode is byte-correct.
+   This is the single most important checkpoint — if static frames match, the
+   hard part is done.
+4. Port `DistortionEffect` + `Distorter` to add the animated wobble.
+5. Port `BackgroundLayer.overlayFrame` and the two-layer alpha composite from
+   `engine.js`. Now both layers animate and blend.
+
+### Milestone 4 — Animation loop
+
+1. Set `animationTimeInterval` for ~30 fps in `init`.
+2. In `animateOneFrame()`: advance `tick += frameSkip`, run both layers'
+   `overlayFrame` into the buffer, then `setNeedsDisplay(bounds)` (or draw
+   directly). Keep allocations out of the hot loop — reuse the buffer.
+
+### Milestone 5 — The randomize timer
+
+1. Add `randomizeInterval` (seconds), default 10.
+2. In `startAnimation()`: call `super`, **re-read the interval from defaults**, and
+   schedule a repeating `Timer` whose handler calls `randomize()`.
+3. `randomize()`: pick `layer1 = Int.random(in: 0..<327)`, `layer2 =
+Int.random(in: 0..<327)` (mirror the web app's range), rebuild the two
+   `BackgroundLayer`s, reset alpha (1.0 if layer2 == 0, else 0.5 each — matches
+   `index.js`).
+4. In `stopAnimation()`: invalidate the timer, call `super`.
+
+### Milestone 6 — Options… configuration sheet
+
+1. Override `hasConfigureSheet { true }` and `configureSheet`.
+2. Small window: a slider/stepper + label "Pick a new background every \_\_\_
+   seconds" (bounds e.g. 3–120), plus OK/Cancel.
+3. Persist via:
    ```swift
    let defaults = ScreenSaverDefaults(forModuleWithName: Bundle(for: type(of: self)).bundleIdentifier!)!
-   defaults.set(interval, forKey: "randomizeInterval")
-   defaults.synchronize()
+   defaults.set(interval, forKey: "randomizeInterval"); defaults.synchronize()
    ```
-   Read the same key on init / `startAnimation`. Provide a sensible default if unset.
-4. **Verify the live instance picks up a changed interval** — change it in Options, close,
-   re-open the preview, confirm the cadence changed.
+   Read the same key on init/`startAnimation`, with a default when unset.
+4. (Optional) toggles to also randomize aspect ratio / frameskip, or a fixed-layer
+   "favorite" mode. Decide later — not required for v1.
+
+### Milestone 7 — Install / sign / ship
+
+- **Personal use (assumed default):** build, double-click the `.saver` (or
+  right-click → Open to clear Gatekeeper) to install into `~/Library/Screen Savers/`.
+  Unsigned is fine for your own machine.
+- **Distribution to others:** requires Developer ID signing + notarization
+  (Apple Developer account, `codesign`, `notarytool`, stapling). More setup — only
+  if you actually plan to share it. **Tell me which you want.**
 
 ---
 
-## Milestone 6 — Install, sign, and ship
+## Install & test loop (read this before you start iterating)
 
-1. **Personal install (default assumption):** build, then double-click the `.saver` (or
-   right-click → Open) to install into `~/Library/Screen Savers/`. Unsigned is fine for
-   your own machine — you'll get a Gatekeeper prompt you can bypass (right-click → Open,
-   or allow in System Settings → Privacy & Security).
-2. **Only if you intend to distribute it to others:** you'll need a **Developer ID**
-   signature + **notarization**. That's meaningfully more setup (Apple Developer account,
-   `codesign`, `notarytool`, stapling). **Tell me which you want** — we shouldn't
-   over-engineer for distribution if this is just for you.
-
----
-
-## Cross-cutting: iterating on a screensaver is genuinely painful
-
-The OS caches the installed `.saver` aggressively, so a rebuild frequently won't show up.
-Budget for this so it doesn't read as "something's broken." Typical reset loop between
-builds:
+macOS caches installed screensavers aggressively; a fresh build often won't show
+up until you reset. Expect this — it's not a bug in your code. Between builds:
 
 1. Quit System Settings.
 2. `killall legacyScreenSaver` (and `killall ScreenSaverEngine` if running).
 3. Remove the old copy from `~/Library/Screen Savers/`.
 4. Copy the freshly built `.saver` in.
-5. Re-open System Settings → Screen Saver.
+5. Re-open System Settings → Screen Saver, **and/or** run the real engine directly
+   for faster iteration: `/System/Library/CoreServices/ScreenSaverEngine.app`.
 
-A small shell script to do steps 2–4 will save a lot of frustration. Prefer testing via
-`ScreenSaverEngine.app` during development — it's faster and more honest than the preview
-pane.
+A 3-line shell script for steps 2–4 will save real frustration.
 
 ---
 
-## Appendix A — WKWebView-in-screensaver blank-screen workarounds (try during the spike)
+## Gotchas to respect during the port (where bugs will hide)
 
-If the spike shows blank, before declaring the wrapper dead, try:
-
-- Creating the WKWebView in `init`, never in `animateOneFrame`.
-- Using `loadFileURL(_, allowingReadAccessTo:)` with the **directory** (not the file) for
-  read access.
-- Loading via a tiny embedded HTTP server / `loadHTMLString` instead of `file://` (some
-  sandbox configs treat `file://` differently).
-- Adding a `WKNavigationDelegate` and logging failures to find the real cause.
-- Checking Console.app filtered to `legacyScreenSaver` / `WebContent` for sandbox-denial
-  messages.
-- Confirming the bare (non-web) `ScreenSaverView` from spike step 1 works — isolates
-  "screensavers broken on this OS" from "WKWebView blocked."
-
-## Appendix B — Fallback if WKWebView is a dead end
-
-Native Swift port: reimplement the ROM parsing (`src/rom/*.js`) and the distortion math
-(the `Offset(y,t) = A·sin(F·y + S·t)` effects in
-[src/rom/distortion_effect.js](src/rom/distortion_effect.js) /
-[src/rom/distorter.js](src/rom/distorter.js)) in Swift, rendering per-frame in
-`animateOneFrame()` via Core Graphics or Metal. This reuses the _algorithm_ and the
-_data file_ but rewrites the engine. Larger effort — a separate decision, not part of
-this plan's happy path.
+- **`Block.readInt16` reads a single byte**, despite the name. The data blob is a
+  byte array; `data[pointer++]` returns one `UInt8`. `readInt32` combines 4 bytes
+  little-endian; `readDoubleShort` combines 2 bytes into a signed 16-bit value.
+  Mirror this exactly — don't "fix" the naming into real 16-bit reads.
+- **Signed 16-bit casts matter.** `distortion_effect.js` casts results to `Int16`
+  (`asInt16`). Distortion amplitude/frequency/compression can legitimately be
+  negative. Use `Int16` where the JS does and let it wrap the same way, then widen
+  to `Int`/`Double` for the math.
+- **The decompressor is load-bearing and finicky** (`decompress` / 8 command
+  types, bit-reversal table). Port it verbatim, byte for byte. Don't refactor it
+  on the first pass. A single off-by-one corrupts whole backgrounds.
+- **Pixel buffer is `Int16` in JS, additive across layers.** With alpha 0.5+0.5
+  the sums stay ≤255, but write through a clamp (`min(255, …)`) to be safe, and
+  emit `UInt8` for the CGImage.
+- **Stride is 1024** (256 px × 4 bytes) in the source 256-tall buffer; the visible
+  output is 224 rows. Keep the letterbox handling from `distorter.js`.
+- **SNES color is 15-bit BGR**: `r=(c&31)*8, g=((c>>5)&31)*8, b=((c>>10)&31)*8`.
+  Note the channel order — easy to swap R/B by accident.
+- **Validate against the web app** at each checkpoint (`?layer1=&layer2=`). It's
+  the ground truth; a side-by-side catches decode bugs instantly.
 
 ---
 
 ## Open questions for you
 
-1. **Personal use or distribution?** (Decides whether we do code signing + notarization.)
-2. Beyond the **interval**, do you want the Options sheet to also randomize **aspect
-   ratio** and **frameskip**, or keep those fixed/sensible-default?
-3. Any preference on **default interval** and bounds (e.g. 5–120 seconds)?
+1. **Personal use or distribution?** (Decides code signing / notarization.)
+2. Want me to **write all the ported Swift source files now** so you can drop them
+   into the Xcode project, or do you want to go milestone-by-milestone together?
+3. Default randomize interval + bounds? (Proposed: default 10s, range 3–120s.)
+4. Besides interval, should Options also randomize **aspect ratio** / **frameskip**,
+   or keep those at sensible fixed defaults for v1?

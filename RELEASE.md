@@ -5,27 +5,29 @@ built and published automatically by GitHub Actions
 ([.github/workflows/release.yml](.github/workflows/release.yml)): a macOS runner
 builds a **universal** (Apple Silicon + Intel), ad-hoc-signed `.saver`, packages it
 into `EarthboundBattle-Screensaver.zip` (with a one-click `Install.command` and a
-`README.txt`), and attaches it to a GitHub Release.
+`README.txt`), and attaches it to a GitHub Release. The release notes come from
+[`RELEASE_NOTES.md`](RELEASE_NOTES.md) (the workflow's `body_path`), so edit that
+file to change what a release says.
 
 No Apple Developer account or secrets are required — the build is ad-hoc signed, so
 downloaders do a one-time "Open anyway" / right-click-Open step (covered in the
 release notes and the bundled README).
 
-## Prerequisites (one-time per release commit)
+## Easiest: the `/release` skill
+
+Run the **`/release`** slash command (defined in [`.agents/release/SKILL.md`](.agents/release/SKILL.md)).
+It bumps the version, regenerates the "What's new" section of `RELEASE_NOTES.md`
+from the commit log, commits, and uses `gh` to create the tag and start the release.
+The steps below are what it automates, for doing it by hand.
+
+## Prerequisites
 
 The workflow runs from the commit the tag points at, so that commit must contain
-**both** the workflow file and the `EarthboundBattle/` project. The screensaver work
-currently lives on the `screensaver-works` branch.
+**both** the workflow file and the `EarthboundBattle/` project (it does, on `main`).
+Before tagging: make sure `main` is up to date, bump `MARKETING_VERSION` in the Xcode
+project, and update `RELEASE_NOTES.md` for the new version.
 
-1. Commit any outstanding changes.
-2. Merge the screensaver branch into your release branch (e.g. `main`):
-   ```bash
-   git checkout main
-   git merge screensaver-works
-   git push origin main
-   ```
-
-## Cut a release
+## Cut a release manually
 
 ### Option A — push a tag (recommended)
 

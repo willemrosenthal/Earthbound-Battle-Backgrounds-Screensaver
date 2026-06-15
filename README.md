@@ -17,8 +17,10 @@ network access. The original JS web app is still present in this repo (`src/`,
 
 - Native, self-contained `.saver` — pure Swift + the bundled ROM data file.
 - Randomly switches to a new background combination every _N_ seconds.
-- **Options…** sheet (in System Settings) to configure the change interval and the
-  animation speed (frameskip).
+- **Options…** sheet (in System Settings) to configure the change interval and
+  animation speed, **choose which backgrounds appear** (with live animated previews
+  and click-to-fullscreen), **boost color saturation**, and set the **chance of a
+  single background vs. two blended layers**.
 - Fills the display; universal build runs on **Apple Silicon and Intel**, macOS 12+.
 
 ## Install

@@ -70,8 +70,14 @@ final class EarthboundBattleView: ScreenSaverView {
     // MARK: - Background selection
 
     private func randomizeBackground() {
-        let l1 = Int.random(in: 0..<Rom.entryCount)
-        let l2 = Int.random(in: 0..<Rom.entryCount)
+        var l1 = Int.random(in: 0..<Rom.entryCount)
+        var l2 = Int.random(in: 0..<Rom.entryCount)
+        // Entry 0 is the "blank" background; if BOTH layers land on it the screen
+        // is pure black. Rare (~1 in 107k), but re-roll it so it never happens.
+        while l1 == 0 && l2 == 0 {
+            l1 = Int.random(in: 0..<Rom.entryCount)
+            l2 = Int.random(in: 0..<Rom.entryCount)
+        }
         layer1 = BackgroundLayer(entry: l1, rom: Rom.shared)
         layer2 = BackgroundLayer(entry: l2, rom: Rom.shared)
         // Alpha rules mirror engine.js: a blank (0) layer drops out entirely.

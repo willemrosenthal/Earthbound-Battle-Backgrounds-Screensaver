@@ -15,6 +15,8 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     private let intervalStepper = NSStepper()
     private let frameSkipField = NSTextField()
     private let frameSkipStepper = NSStepper()
+    private let saturationSlider = NSSlider()
+    private let saturationValueLabel = NSTextField(labelWithString: "")
     private var collectionView: NSCollectionView!
     private var animationTimer: Timer?
 
@@ -23,6 +25,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
 
     private static let intervalMin = 3, intervalMax = 120
     private static let frameSkipMin = 1, frameSkipMax = 10
+    private static let saturationMin = 1.0, saturationMax = 3.0
     // Backgrounds shown in the grid. Index 0 is the "blank" background and is not
     // selectable — it's always available as the solo-layer partner.
     private static let firstIndex = 1
@@ -101,6 +104,20 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         frameSkipStepper.action = #selector(frameSkipStepperChanged)
         content.addSubview(frameSkipStepper)
 
+        let saturationLabel = makeLabel("Color saturation:", frame: NSRect(x: 20, y: 124, width: 130, height: 20))
+        content.addSubview(saturationLabel)
+
+        saturationSlider.frame = NSRect(x: 150, y: 122, width: 150, height: 22)
+        saturationSlider.minValue = Self.saturationMin
+        saturationSlider.maxValue = Self.saturationMax
+        saturationSlider.isContinuous = true
+        saturationSlider.target = self
+        saturationSlider.action = #selector(saturationChanged)
+        content.addSubview(saturationSlider)
+
+        saturationValueLabel.frame = NSRect(x: 308, y: 124, width: 60, height: 20)
+        content.addSubview(saturationValueLabel)
+
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
         cancelButton.frame = NSRect(x: W - 184, y: 16, width: 84, height: 32)
         cancelButton.bezelStyle = .rounded
@@ -125,7 +142,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         content.addSubview(disableAll)
 
         let hint = makeLabel("Uncheck backgrounds to exclude them from the random rotation:",
-                             frame: NSRect(x: 20, y: 124, width: W - 40, height: 18))
+                             frame: NSRect(x: 20, y: 158, width: W - 40, height: 18))
         hint.autoresizingMask = [.width]
         content.addSubview(hint)
 
@@ -144,7 +161,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         collectionView.backgroundColors = [.clear]
         collectionView.register(BackgroundThumbnailItem.self, forItemWithIdentifier: BackgroundThumbnailItem.identifier)
 
-        let scroll = NSScrollView(frame: NSRect(x: 16, y: 150, width: W - 32, height: 680 - 150 - 16))
+        let scroll = NSScrollView(frame: NSRect(x: 16, y: 184, width: W - 32, height: 680 - 184 - 16))
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         scroll.autohidesScrollers = true
@@ -172,11 +189,27 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
 
         let disabledList = d?.array(forKey: EarthboundBattleView.disabledKey) as? [Int] ?? []
         disabled = Set(disabledList)
+
+        let sat = d?.double(forKey: EarthboundBattleView.saturationKey) ?? 1
+        saturationSlider.doubleValue = min(max(sat < 1 ? 1 : sat, Self.saturationMin), Self.saturationMax)
+        applySaturationValue(saturationSlider.doubleValue)
+
         collectionView?.reloadData()
     }
 
     @objc private func intervalStepperChanged() {
         intervalField.integerValue = intervalStepper.integerValue
+    }
+
+    @objc private func saturationChanged() {
+        applySaturationValue(saturationSlider.doubleValue)
+    }
+
+    // Updates the readout and the live preview saturation as the slider moves.
+    private func applySaturationValue(_ value: Double) {
+        let v = min(max(value, Self.saturationMin), Self.saturationMax)
+        saturationValueLabel.stringValue = String(format: "%.1f×", v)
+        BackgroundThumbnailItem.previewSaturation = v
     }
 
     @objc private func frameSkipStepperChanged() {
@@ -200,6 +233,8 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         d?.set(interval, forKey: EarthboundBattleView.intervalKey)
         d?.set(frameSkip, forKey: EarthboundBattleView.frameSkipKey)
         d?.set(disabled.sorted(), forKey: EarthboundBattleView.disabledKey)
+        let saturation = min(max(saturationSlider.doubleValue, Self.saturationMin), Self.saturationMax)
+        d?.set(saturation, forKey: EarthboundBattleView.saturationKey)
         d?.synchronize()
         dismiss()
     }

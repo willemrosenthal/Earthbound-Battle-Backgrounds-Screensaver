@@ -66,6 +66,16 @@
     "swift-dependencies" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/Block.swiftdeps",
     "swiftmodule" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/Block~partial.swiftmodule"
   },
+  "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/EarthboundBattle/ColorAdjust.swift" : {
+    "const-values" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.swiftconstvalues",
+    "dependencies" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.d",
+    "diagnostics" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.dia",
+    "index-unit-output-path" : "/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.o",
+    "llvm-bc" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.bc",
+    "object" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.o",
+    "swift-dependencies" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust.swiftdeps",
+    "swiftmodule" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ColorAdjust~partial.swiftmodule"
+  },
   "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/EarthboundBattle/ConfigureSheetController.swift" : {
     "const-values" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ConfigureSheetController.swiftconstvalues",
     "dependencies" : "/Users/11389/Projects/Earthbound-Battle-Backgrounds-Screensaver/EarthboundBattle/build/Build/Intermediates.noindex/EarthboundBattle.build/Release/EarthboundBattle.build/Objects-normal/arm64/ConfigureSheetController.d",

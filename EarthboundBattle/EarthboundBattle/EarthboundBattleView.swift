@@ -12,6 +12,7 @@ final class EarthboundBattleView: ScreenSaverView {
     static let intervalKey = "RandomizeInterval"
     static let frameSkipKey = "FrameSkip"
     static let disabledKey = "DisabledBackgrounds" // [Int] of indices excluded from rotation
+    static let saturationKey = "Saturation" // Double; 1.0 = unchanged, >1 = boosted
 
     // Engine state
     private var layer1: BackgroundLayer?
@@ -21,6 +22,7 @@ final class EarthboundBattleView: ScreenSaverView {
     private var frameSkip: Double = 1
     private var randomizeInterval: TimeInterval = 10
     private var disabled: Set<Int> = []
+    private var saturation: Double = 1
 
     // Output: 256×224 RGBA
     private var dst = [UInt8](repeating: 0, count: SNES_WIDTH * SNES_HEIGHT * 4)
@@ -58,7 +60,8 @@ final class EarthboundBattleView: ScreenSaverView {
         defaults()?.register(defaults: [
             EarthboundBattleView.intervalKey: 10,
             EarthboundBattleView.frameSkipKey: 1,
-            EarthboundBattleView.disabledKey: [Int]()
+            EarthboundBattleView.disabledKey: [Int](),
+            EarthboundBattleView.saturationKey: 1.0
         ])
     }
 
@@ -70,6 +73,8 @@ final class EarthboundBattleView: ScreenSaverView {
         frameSkip = Double(max(1, fs))
         let disabledList = d?.array(forKey: EarthboundBattleView.disabledKey) as? [Int] ?? []
         disabled = Set(disabledList)
+        let sat = d?.double(forKey: EarthboundBattleView.saturationKey) ?? 1
+        saturation = sat < 1 ? 1 : sat
     }
 
     // MARK: - Background selection
@@ -124,6 +129,7 @@ final class EarthboundBattleView: ScreenSaverView {
         // Layer 0 erases (overwrites); layer 1 blends additively.
         layer1.overlayFrame(&dst, letterbox: 0, ticks: tick, alpha: alphas[0], erase: true)
         layer2.overlayFrame(&dst, letterbox: 0, ticks: tick, alpha: alphas[1], erase: false)
+        boostSaturation(&dst, factor: saturation)
         tick += frameSkip
         currentImage = makeImage()
         setNeedsDisplay(bounds)

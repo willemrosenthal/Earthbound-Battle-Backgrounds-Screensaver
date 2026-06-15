@@ -11,6 +11,8 @@ import Cocoa
 // cell animates, driven by the controller's timer calling renderFrame().
 final class BackgroundThumbnailItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("BackgroundThumbnailItem")
+    // Shared with the Options slider so previews reflect the chosen saturation live.
+    static var previewSaturation: Double = 1
 
     private let thumb = NSImageView()
     private let checkbox = NSButton()
@@ -60,6 +62,7 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
     func renderFrame() {
         guard let layer = layer else { return }
         layer.overlayFrame(&dst, letterbox: 0, ticks: tick, alpha: 1, erase: true)
+        boostSaturation(&dst, factor: Self.previewSaturation)
         tick += 1
         thumb.image = Self.image(from: dst)
     }

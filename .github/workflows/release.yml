@@ -1,0 +1,60 @@
+name: Build & Release Screensaver
+
+# Publishes the macOS screensaver as a downloadable zip on a GitHub Release.
+# Trigger by pushing a version tag (git tag v1.0.0 && git push origin v1.0.0),
+# or run manually from the Actions tab and supply a tag.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write # needed to create the release
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build & package universal .saver
+        run: bash ./EarthboundBattle/package-for-sharing.sh
+
+      - name: Resolve tag name
+        id: tag
+        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: Earthbound Battle Backgrounds Screensaver ${{ steps.tag.outputs.value }}
+          files: EarthboundBattle/dist/EarthboundBattle-Screensaver.zip
+          body: |
+            A native macOS screensaver of the EarthBound / Mother 2 battle backgrounds.
+            Universal build — runs on Apple Silicon and Intel, macOS 12 or later.
+
+            ## Install
+            1. Download **EarthboundBattle-Screensaver.zip** below and unzip it.
+            2. Right-click (Control-click) **Install.command** and choose **Open**
+               (macOS will warn it's from an unidentified developer — click Open).
+            3. Open **System Settings → Screen Saver** and pick **EarthboundBattle**.
+
+            See the included **README.txt** for a manual install option and the
+            **Options…** settings (background-change interval and animation speed).
+
+            This is a free, fan-made project and is not notarized by Apple, which is
+            why the one-time "unidentified developer" prompt appears. It is safe to open.

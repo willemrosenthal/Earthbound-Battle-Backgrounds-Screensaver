@@ -13,6 +13,7 @@ final class EarthboundBattleView: ScreenSaverView {
     static let frameSkipKey = "FrameSkip"
     static let disabledKey = "DisabledBackgrounds" // [Int] of indices excluded from rotation
     static let saturationKey = "Saturation" // Double; 1.0 = unchanged, >1 = boosted
+    static let singleChanceKey = "SingleBackgroundChance" // Int 0…100 (% chance of one layer)
 
     // Engine state
     private var layer1: BackgroundLayer?
@@ -23,6 +24,7 @@ final class EarthboundBattleView: ScreenSaverView {
     private var randomizeInterval: TimeInterval = 10
     private var disabled: Set<Int> = []
     private var saturation: Double = 1
+    private var singleChance: Int = 15
 
     // Output: 256×224 RGBA
     private var dst = [UInt8](repeating: 0, count: SNES_WIDTH * SNES_HEIGHT * 4)
@@ -61,7 +63,8 @@ final class EarthboundBattleView: ScreenSaverView {
             EarthboundBattleView.intervalKey: 10,
             EarthboundBattleView.frameSkipKey: 1,
             EarthboundBattleView.disabledKey: [Int](),
-            EarthboundBattleView.saturationKey: 1.0
+            EarthboundBattleView.saturationKey: 1.0,
+            EarthboundBattleView.singleChanceKey: 15
         ])
     }
 
@@ -75,35 +78,33 @@ final class EarthboundBattleView: ScreenSaverView {
         disabled = Set(disabledList)
         let sat = d?.double(forKey: EarthboundBattleView.saturationKey) ?? 1
         saturation = sat < 1 ? 1 : sat
+        let chance = d?.integer(forKey: EarthboundBattleView.singleChanceKey) ?? 15
+        singleChance = min(max(chance, 0), 100)
     }
 
     // MARK: - Background selection
 
     private func randomizeBackground() {
-        // Non-blank backgrounds the user hasn't disabled (entry 0 is the "blank"
-        // background, never in the grid). If everything is disabled, fall back to
-        // the full set so the pool is never empty (which would hang the re-roll).
-        var nonBlank = (1..<Rom.entryCount).filter { !disabled.contains($0) }
-        if nonBlank.isEmpty { nonBlank = Array(1..<Rom.entryCount) }
-        // Keep 0 in the mix so a single background can show solo over black.
-        let pool = [0] + nonBlank
+        // Usable = real (non-black) backgrounds the user hasn't disabled. Black
+        // entries are always excluded; entry 0 (blank) is only ever the silent
+        // partner for a single-background frame, never a "real" pick.
+        let black = Rom.shared.blackEntries
+        var usable = (1..<Rom.entryCount).filter { !disabled.contains($0) && !black.contains($0) }
+        if usable.isEmpty { usable = (1..<Rom.entryCount).filter { !black.contains($0) } }
+        if usable.isEmpty { usable = Array(1..<Rom.entryCount) }
 
-        var l1 = pool.randomElement()!
-        var l2 = pool.randomElement()!
-        // If BOTH layers land on blank the screen is pure black — re-roll. Safe:
-        // `pool` always holds at least one non-blank entry.
-        while l1 == 0 && l2 == 0 {
-            l1 = pool.randomElement()!
-            l2 = pool.randomElement()!
-        }
-        layer1 = BackgroundLayer(entry: l1, rom: Rom.shared)
-        layer2 = BackgroundLayer(entry: l2, rom: Rom.shared)
-        // Alpha rules mirror engine.js: a blank (0) layer drops out entirely.
-        if l1 != 0 && l2 == 0 {
+        let l1 = usable.randomElement()!
+        // `singleChance`% of the time (or when there's only one option) show a
+        // single background over black; otherwise blend two distinct backgrounds.
+        if usable.count < 2 || Int.random(in: 0..<100) < singleChance {
+            layer1 = BackgroundLayer(entry: l1, rom: Rom.shared)
+            layer2 = BackgroundLayer(entry: 0, rom: Rom.shared) // blank, alpha 0
             alphas = [1, 0]
-        } else if l1 == 0 && l2 != 0 {
-            alphas = [0, 1]
         } else {
+            var l2 = usable.randomElement()!
+            while l2 == l1 { l2 = usable.randomElement()! }
+            layer1 = BackgroundLayer(entry: l1, rom: Rom.shared)
+            layer2 = BackgroundLayer(entry: l2, rom: Rom.shared)
             alphas = [0.5, 0.5]
         }
     }

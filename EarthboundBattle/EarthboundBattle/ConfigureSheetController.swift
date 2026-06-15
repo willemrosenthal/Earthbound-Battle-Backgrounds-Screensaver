@@ -17,6 +17,8 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     private let frameSkipStepper = NSStepper()
     private let saturationSlider = NSSlider()
     private let saturationValueLabel = NSTextField(labelWithString: "")
+    private let singleChanceSlider = NSSlider()
+    private let singleChanceValueLabel = NSTextField(labelWithString: "")
     private var collectionView: NSCollectionView!
     private var animationTimer: Timer?
     private var previewWindow: NSWindow?
@@ -28,10 +30,10 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     private static let intervalMin = 3, intervalMax = 120
     private static let frameSkipMin = 1, frameSkipMax = 10
     private static let saturationMin = 1.0, saturationMax = 3.0
-    // Backgrounds shown in the grid. Index 0 is the "blank" background and is not
-    // selectable — it's always available as the solo-layer partner.
-    private static let firstIndex = 1
-    private static let backgroundCount = Rom.entryCount - 1 // 326 toggleable entries
+
+    // Real, selectable backgrounds shown in the grid: 1…326 minus the all-black
+    // "empty layer" entries (hidden) and never including blank entry 0.
+    private let visibleIndices: [Int] = (1..<Rom.entryCount).filter { !Rom.shared.blackEntries.contains($0) }
 
     init(defaultsName: String) {
         self.defaultsName = defaultsName
@@ -74,14 +76,14 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
 
         // --- Bottom band: settings + buttons (pinned to the bottom) ---
 
-        let intervalLabel = makeLabel("New background every (seconds):", frame: NSRect(x: 20, y: 92, width: 240, height: 20))
+        let intervalLabel = makeLabel("New background every (seconds):", frame: NSRect(x: 20, y: 154, width: 240, height: 20))
         content.addSubview(intervalLabel)
 
-        intervalField.frame = NSRect(x: 268, y: 90, width: 50, height: 22)
+        intervalField.frame = NSRect(x: 268, y: 152, width: 50, height: 22)
         intervalField.alignment = .right
         content.addSubview(intervalField)
 
-        intervalStepper.frame = NSRect(x: 322, y: 88, width: 19, height: 27)
+        intervalStepper.frame = NSRect(x: 322, y: 150, width: 19, height: 27)
         intervalStepper.minValue = Double(Self.intervalMin)
         intervalStepper.maxValue = Double(Self.intervalMax)
         intervalStepper.increment = 1
@@ -90,14 +92,14 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         intervalStepper.action = #selector(intervalStepperChanged)
         content.addSubview(intervalStepper)
 
-        let frameSkipLabel = makeLabel("Animation speed (1 = slow, 10 = fast):", frame: NSRect(x: 20, y: 56, width: 240, height: 20))
+        let frameSkipLabel = makeLabel("Animation speed (1 = slow, 10 = fast):", frame: NSRect(x: 20, y: 120, width: 240, height: 20))
         content.addSubview(frameSkipLabel)
 
-        frameSkipField.frame = NSRect(x: 268, y: 54, width: 50, height: 22)
+        frameSkipField.frame = NSRect(x: 268, y: 118, width: 50, height: 22)
         frameSkipField.alignment = .right
         content.addSubview(frameSkipField)
 
-        frameSkipStepper.frame = NSRect(x: 322, y: 52, width: 19, height: 27)
+        frameSkipStepper.frame = NSRect(x: 322, y: 116, width: 19, height: 27)
         frameSkipStepper.minValue = Double(Self.frameSkipMin)
         frameSkipStepper.maxValue = Double(Self.frameSkipMax)
         frameSkipStepper.increment = 1
@@ -106,10 +108,24 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         frameSkipStepper.action = #selector(frameSkipStepperChanged)
         content.addSubview(frameSkipStepper)
 
-        let saturationLabel = makeLabel("Color saturation:", frame: NSRect(x: 20, y: 124, width: 130, height: 20))
+        let singleChanceLabel = makeLabel("Chance of a single background:", frame: NSRect(x: 20, y: 86, width: 220, height: 20))
+        content.addSubview(singleChanceLabel)
+
+        singleChanceSlider.frame = NSRect(x: 244, y: 84, width: 130, height: 22)
+        singleChanceSlider.minValue = 0
+        singleChanceSlider.maxValue = 100
+        singleChanceSlider.isContinuous = true
+        singleChanceSlider.target = self
+        singleChanceSlider.action = #selector(singleChanceChanged)
+        content.addSubview(singleChanceSlider)
+
+        singleChanceValueLabel.frame = NSRect(x: 382, y: 86, width: 50, height: 20)
+        content.addSubview(singleChanceValueLabel)
+
+        let saturationLabel = makeLabel("Color saturation:", frame: NSRect(x: 20, y: 52, width: 130, height: 20))
         content.addSubview(saturationLabel)
 
-        saturationSlider.frame = NSRect(x: 150, y: 122, width: 150, height: 22)
+        saturationSlider.frame = NSRect(x: 150, y: 50, width: 150, height: 22)
         saturationSlider.minValue = Self.saturationMin
         saturationSlider.maxValue = Self.saturationMax
         saturationSlider.isContinuous = true
@@ -117,7 +133,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         saturationSlider.action = #selector(saturationChanged)
         content.addSubview(saturationSlider)
 
-        saturationValueLabel.frame = NSRect(x: 308, y: 124, width: 60, height: 20)
+        saturationValueLabel.frame = NSRect(x: 308, y: 52, width: 60, height: 20)
         content.addSubview(saturationValueLabel)
 
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
@@ -144,7 +160,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         content.addSubview(disableAll)
 
         let hint = makeLabel("Uncheck backgrounds to exclude them from the random rotation:",
-                             frame: NSRect(x: 20, y: 158, width: W - 40, height: 18))
+                             frame: NSRect(x: 20, y: 188, width: W - 40, height: 18))
         hint.autoresizingMask = [.width]
         content.addSubview(hint)
 
@@ -163,7 +179,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         collectionView.backgroundColors = [.clear]
         collectionView.register(BackgroundThumbnailItem.self, forItemWithIdentifier: BackgroundThumbnailItem.identifier)
 
-        let scroll = NSScrollView(frame: NSRect(x: 16, y: 184, width: W - 32, height: 680 - 184 - 16))
+        let scroll = NSScrollView(frame: NSRect(x: 16, y: 214, width: W - 32, height: 680 - 214 - 16))
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         scroll.autohidesScrollers = true
@@ -196,6 +212,10 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         saturationSlider.doubleValue = min(max(sat < 1 ? 1 : sat, Self.saturationMin), Self.saturationMax)
         applySaturationValue(saturationSlider.doubleValue)
 
+        let chance = d?.integer(forKey: EarthboundBattleView.singleChanceKey) ?? 15
+        singleChanceSlider.integerValue = min(max(chance, 0), 100)
+        applySingleChanceValue()
+
         collectionView?.reloadData()
     }
 
@@ -218,13 +238,21 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         frameSkipField.integerValue = frameSkipStepper.integerValue
     }
 
+    @objc private func singleChanceChanged() {
+        applySingleChanceValue()
+    }
+
+    private func applySingleChanceValue() {
+        singleChanceValueLabel.stringValue = "\(singleChanceSlider.integerValue)%"
+    }
+
     @objc private func enableAll() {
         disabled.removeAll()
         collectionView.reloadData()
     }
 
     @objc private func disableAll() {
-        disabled = Set(Self.firstIndex..<Rom.entryCount)
+        disabled = Set(visibleIndices)
         collectionView.reloadData()
     }
 
@@ -237,6 +265,7 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
         d?.set(disabled.sorted(), forKey: EarthboundBattleView.disabledKey)
         let saturation = min(max(saturationSlider.doubleValue, Self.saturationMin), Self.saturationMax)
         d?.set(saturation, forKey: EarthboundBattleView.saturationKey)
+        d?.set(min(max(singleChanceSlider.integerValue, 0), 100), forKey: EarthboundBattleView.singleChanceKey)
         d?.synchronize()
         dismiss()
     }
@@ -257,12 +286,12 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     // MARK: - NSCollectionViewDataSource
 
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-        Self.backgroundCount
+        visibleIndices.count
     }
 
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: BackgroundThumbnailItem.identifier, for: indexPath) as! BackgroundThumbnailItem
-        let index = indexPath.item + Self.firstIndex
+        let index = visibleIndices[indexPath.item]
         item.configure(index: index, enabled: !disabled.contains(index), onToggle: { [weak self] idx, enabled in
             guard let self = self else { return }
             if enabled { self.disabled.remove(idx) } else { self.disabled.insert(idx) }

@@ -177,6 +177,28 @@ final class Rom {
 
     static let entryCount = 327 // indices 0...326
 
+    // Entries whose graphics are entirely palette-index 0, so they render as a
+    // solid black frame. In EarthBound these are the "empty" half of a two-layer
+    // combo — useless shown alone — so we hide them from the picker and never put
+    // them in rotation. Computed once on first use (real backgrounds bail on their
+    // first non-black pixel, so the scan is cheap).
+    private(set) lazy var blackEntries: Set<Int> = {
+        var result = Set<Int>()
+        var dst = [UInt8](repeating: 0, count: SNES_WIDTH * SNES_HEIGHT * 4)
+        for i in 1..<Rom.entryCount {
+            let layer = BackgroundLayer(entry: i, rom: self)
+            layer.overlayFrame(&dst, letterbox: 0, ticks: 0, alpha: 1, erase: true)
+            var allBlack = true
+            var p = 0
+            while p + 2 < dst.count {
+                if dst[p] != 0 || dst[p + 1] != 0 || dst[p + 2] != 0 { allBlack = false; break }
+                p += 4
+            }
+            if allBlack { result.insert(i) }
+        }
+        return result
+    }()
+
     static let shared: Rom = {
         let url = Bundle(for: Rom.self).url(forResource: "truncated_backgrounds", withExtension: "dat")!
         let bytes = [UInt8](try! Data(contentsOf: url))

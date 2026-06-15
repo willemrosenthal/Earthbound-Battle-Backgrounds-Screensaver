@@ -43,18 +43,4 @@ jobs:
           tag_name: ${{ steps.tag.outputs.value }}
           name: Earthbound Battle Backgrounds Screensaver ${{ steps.tag.outputs.value }}
           files: EarthboundBattle/dist/EarthboundBattle-Screensaver.zip
-          body: |
-            A native macOS screensaver of the EarthBound / Mother 2 battle backgrounds.
-            Universal build — runs on Apple Silicon and Intel, macOS 12 or later.
-
-            ## Install
-            1. Download **EarthboundBattle-Screensaver.zip** below and unzip it.
-            2. Right-click (Control-click) **Install.command** and choose **Open**
-               (macOS will warn it's from an unidentified developer — click Open).
-            3. Open **System Settings → Screen Saver** and pick **EarthboundBattle**.
-
-            See the included **README.txt** for a manual install option and the
-            **Options…** settings (background-change interval and animation speed).
-
-            This is a free, fan-made project and is not notarized by Apple, which is
-            why the one-time "unidentified developer" prompt appears. It is safe to open.
+          body_path: RELEASE_NOTES.md

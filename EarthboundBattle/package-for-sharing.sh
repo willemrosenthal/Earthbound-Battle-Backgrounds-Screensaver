@@ -61,8 +61,12 @@ MANUAL INSTALL (if you prefer)
    "Open Anyway" next to the EarthboundBattle message. Then pick it in Screen Saver.
 
 OPTIONS
-In System Settings > Screen Saver, with EarthboundBattle selected, click "Options…"
-to set how often the background changes and the animation speed.
+In System Settings > Screen Saver, with EarthboundBattle selected, click "Options…" to:
+  - Choose which backgrounds appear (uncheck any you don't want), with live
+    animated previews. Click a preview to see it full screen.
+  - Set how often the background changes and the animation speed.
+  - Boost the color saturation.
+  - Set how often a single background shows vs. two blended together.
 
 Note: this is a personal, free, fan-made project — not notarized by Apple, which is
 why the one-time "unidentified developer" prompt appears. It is safe to open.

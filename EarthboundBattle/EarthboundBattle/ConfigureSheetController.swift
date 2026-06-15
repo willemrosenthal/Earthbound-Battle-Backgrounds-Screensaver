@@ -2,10 +2,12 @@ import Cocoa
 import ScreenSaver
 
 // The "Options…" sheet shown in System Settings → Screen Saver. Built
-// programmatically (no .xib) to keep everything in code. Two settings:
+// programmatically (no .xib) to keep everything in code. Settings:
 //   • Randomize interval (seconds): how often a new background pair is chosen.
 //   • Frameskip: animation speed (how far the time tick advances per frame).
-final class ConfigureSheetController: NSObject {
+//   • Disabled backgrounds: a grid of every background (1…326) with a checkbox
+//     each; unchecked entries are excluded from the random rotation.
+final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     let window: NSWindow
     private let defaultsName: String
 
@@ -13,14 +15,23 @@ final class ConfigureSheetController: NSObject {
     private let intervalStepper = NSStepper()
     private let frameSkipField = NSTextField()
     private let frameSkipStepper = NSStepper()
+    private var collectionView: NSCollectionView!
+
+    // Working copy of disabled indices; committed to defaults only on OK.
+    private var disabled: Set<Int> = []
 
     private static let intervalMin = 3, intervalMax = 120
     private static let frameSkipMin = 1, frameSkipMax = 10
+    // Backgrounds shown in the grid. Index 0 is the "blank" background and is not
+    // selectable — it's always available as the solo-layer partner.
+    private static let firstIndex = 1
+    private static let backgroundCount = Rom.entryCount - 1 // 326 toggleable entries
 
     init(defaultsName: String) {
         self.defaultsName = defaultsName
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 180),
-                          styleMask: [.titled], backing: .buffered, defer: true)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 680),
+                          styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+        window.minSize = NSSize(width: 480, height: 420)
         super.init()
         window.title = "Earthbound Battle Backgrounds"
         buildUI()
@@ -33,15 +44,18 @@ final class ConfigureSheetController: NSObject {
 
     private func buildUI() {
         guard let content = window.contentView else { return }
+        let W = content.bounds.width
 
-        let intervalLabel = makeLabel("New background every (seconds):", frame: NSRect(x: 20, y: 132, width: 240, height: 20))
+        // --- Bottom band: settings + buttons (pinned to the bottom) ---
+
+        let intervalLabel = makeLabel("New background every (seconds):", frame: NSRect(x: 20, y: 92, width: 240, height: 20))
         content.addSubview(intervalLabel)
 
-        intervalField.frame = NSRect(x: 268, y: 130, width: 50, height: 22)
+        intervalField.frame = NSRect(x: 268, y: 90, width: 50, height: 22)
         intervalField.alignment = .right
         content.addSubview(intervalField)
 
-        intervalStepper.frame = NSRect(x: 322, y: 128, width: 19, height: 27)
+        intervalStepper.frame = NSRect(x: 322, y: 88, width: 19, height: 27)
         intervalStepper.minValue = Double(Self.intervalMin)
         intervalStepper.maxValue = Double(Self.intervalMax)
         intervalStepper.increment = 1
@@ -50,14 +64,14 @@ final class ConfigureSheetController: NSObject {
         intervalStepper.action = #selector(intervalStepperChanged)
         content.addSubview(intervalStepper)
 
-        let frameSkipLabel = makeLabel("Animation speed (1 = slow, 10 = fast):", frame: NSRect(x: 20, y: 92, width: 240, height: 20))
+        let frameSkipLabel = makeLabel("Animation speed (1 = slow, 10 = fast):", frame: NSRect(x: 20, y: 56, width: 240, height: 20))
         content.addSubview(frameSkipLabel)
 
-        frameSkipField.frame = NSRect(x: 268, y: 90, width: 50, height: 22)
+        frameSkipField.frame = NSRect(x: 268, y: 54, width: 50, height: 22)
         frameSkipField.alignment = .right
         content.addSubview(frameSkipField)
 
-        frameSkipStepper.frame = NSRect(x: 322, y: 88, width: 19, height: 27)
+        frameSkipStepper.frame = NSRect(x: 322, y: 52, width: 19, height: 27)
         frameSkipStepper.minValue = Double(Self.frameSkipMin)
         frameSkipStepper.maxValue = Double(Self.frameSkipMax)
         frameSkipStepper.increment = 1
@@ -67,15 +81,55 @@ final class ConfigureSheetController: NSObject {
         content.addSubview(frameSkipStepper)
 
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
-        cancelButton.frame = NSRect(x: 196, y: 18, width: 84, height: 32)
+        cancelButton.frame = NSRect(x: W - 184, y: 16, width: 84, height: 32)
         cancelButton.bezelStyle = .rounded
+        cancelButton.autoresizingMask = [.minXMargin]
         content.addSubview(cancelButton)
 
         let okButton = NSButton(title: "OK", target: self, action: #selector(ok))
-        okButton.frame = NSRect(x: 284, y: 18, width: 84, height: 32)
+        okButton.frame = NSRect(x: W - 96, y: 16, width: 84, height: 32)
         okButton.bezelStyle = .rounded
         okButton.keyEquivalent = "\r"
+        okButton.autoresizingMask = [.minXMargin]
         content.addSubview(okButton)
+
+        let enableAll = NSButton(title: "Enable All", target: self, action: #selector(enableAll))
+        enableAll.frame = NSRect(x: 20, y: 16, width: 96, height: 32)
+        enableAll.bezelStyle = .rounded
+        content.addSubview(enableAll)
+
+        let disableAll = NSButton(title: "Disable All", target: self, action: #selector(disableAll))
+        disableAll.frame = NSRect(x: 120, y: 16, width: 96, height: 32)
+        disableAll.bezelStyle = .rounded
+        content.addSubview(disableAll)
+
+        let hint = makeLabel("Uncheck backgrounds to exclude them from the random rotation:",
+                             frame: NSRect(x: 20, y: 124, width: W - 40, height: 18))
+        hint.autoresizingMask = [.width]
+        content.addSubview(hint)
+
+        // --- Top: the scrollable thumbnail grid (grows with the window) ---
+
+        let layout = NSCollectionViewFlowLayout()
+        layout.itemSize = NSSize(width: 96, height: 112)
+        layout.minimumInteritemSpacing = 12
+        layout.minimumLineSpacing = 12
+        layout.sectionInset = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+
+        collectionView = NSCollectionView()
+        collectionView.collectionViewLayout = layout
+        collectionView.dataSource = self
+        collectionView.isSelectable = false
+        collectionView.backgroundColors = [.clear]
+        collectionView.register(BackgroundThumbnailItem.self, forItemWithIdentifier: BackgroundThumbnailItem.identifier)
+
+        let scroll = NSScrollView(frame: NSRect(x: 16, y: 150, width: W - 32, height: 680 - 150 - 16))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        scroll.autohidesScrollers = true
+        scroll.documentView = collectionView
+        scroll.autoresizingMask = [.width, .height]
+        content.addSubview(scroll)
     }
 
     private func makeLabel(_ text: String, frame: NSRect) -> NSTextField {
@@ -94,6 +148,10 @@ final class ConfigureSheetController: NSObject {
         intervalStepper.integerValue = clampedInterval
         frameSkipField.integerValue = clampedFrameSkip
         frameSkipStepper.integerValue = clampedFrameSkip
+
+        let disabledList = d?.array(forKey: EarthboundBattleView.disabledKey) as? [Int] ?? []
+        disabled = Set(disabledList)
+        collectionView?.reloadData()
     }
 
     @objc private func intervalStepperChanged() {
@@ -104,12 +162,23 @@ final class ConfigureSheetController: NSObject {
         frameSkipField.integerValue = frameSkipStepper.integerValue
     }
 
+    @objc private func enableAll() {
+        disabled.removeAll()
+        collectionView.reloadData()
+    }
+
+    @objc private func disableAll() {
+        disabled = Set(Self.firstIndex..<Rom.entryCount)
+        collectionView.reloadData()
+    }
+
     @objc private func ok() {
         let interval = min(max(intervalField.integerValue, Self.intervalMin), Self.intervalMax)
         let frameSkip = min(max(frameSkipField.integerValue, Self.frameSkipMin), Self.frameSkipMax)
         let d = defaults()
         d?.set(interval, forKey: EarthboundBattleView.intervalKey)
         d?.set(frameSkip, forKey: EarthboundBattleView.frameSkipKey)
+        d?.set(disabled.sorted(), forKey: EarthboundBattleView.disabledKey)
         d?.synchronize()
         dismiss()
     }
@@ -125,5 +194,21 @@ final class ConfigureSheetController: NSObject {
         } else {
             window.orderOut(nil)
         }
+    }
+
+    // MARK: - NSCollectionViewDataSource
+
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        Self.backgroundCount
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+        let item = collectionView.makeItem(withIdentifier: BackgroundThumbnailItem.identifier, for: indexPath) as! BackgroundThumbnailItem
+        let index = indexPath.item + Self.firstIndex
+        item.configure(index: index, enabled: !disabled.contains(index)) { [weak self] idx, enabled in
+            guard let self = self else { return }
+            if enabled { self.disabled.remove(idx) } else { self.disabled.insert(idx) }
+        }
+        return item
     }
 }

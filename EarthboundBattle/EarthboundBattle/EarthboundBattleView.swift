@@ -11,6 +11,7 @@ final class EarthboundBattleView: ScreenSaverView {
     static let defaultsName = "com.willem.EarthboundBattle"
     static let intervalKey = "RandomizeInterval"
     static let frameSkipKey = "FrameSkip"
+    static let disabledKey = "DisabledBackgrounds" // [Int] of indices excluded from rotation
 
     // Engine state
     private var layer1: BackgroundLayer?
@@ -19,6 +20,7 @@ final class EarthboundBattleView: ScreenSaverView {
     private var tick: Double = 0
     private var frameSkip: Double = 1
     private var randomizeInterval: TimeInterval = 10
+    private var disabled: Set<Int> = []
 
     // Output: 256×224 RGBA
     private var dst = [UInt8](repeating: 0, count: SNES_WIDTH * SNES_HEIGHT * 4)
@@ -55,7 +57,8 @@ final class EarthboundBattleView: ScreenSaverView {
     private func registerDefaults() {
         defaults()?.register(defaults: [
             EarthboundBattleView.intervalKey: 10,
-            EarthboundBattleView.frameSkipKey: 1
+            EarthboundBattleView.frameSkipKey: 1,
+            EarthboundBattleView.disabledKey: [Int]()
         ])
     }
 
@@ -65,18 +68,28 @@ final class EarthboundBattleView: ScreenSaverView {
         randomizeInterval = TimeInterval(interval < 3 ? 10 : interval)
         let fs = d?.integer(forKey: EarthboundBattleView.frameSkipKey) ?? 1
         frameSkip = Double(max(1, fs))
+        let disabledList = d?.array(forKey: EarthboundBattleView.disabledKey) as? [Int] ?? []
+        disabled = Set(disabledList)
     }
 
     // MARK: - Background selection
 
     private func randomizeBackground() {
-        var l1 = Int.random(in: 0..<Rom.entryCount)
-        var l2 = Int.random(in: 0..<Rom.entryCount)
-        // Entry 0 is the "blank" background; if BOTH layers land on it the screen
-        // is pure black. Rare (~1 in 107k), but re-roll it so it never happens.
+        // Non-blank backgrounds the user hasn't disabled (entry 0 is the "blank"
+        // background, never in the grid). If everything is disabled, fall back to
+        // the full set so the pool is never empty (which would hang the re-roll).
+        var nonBlank = (1..<Rom.entryCount).filter { !disabled.contains($0) }
+        if nonBlank.isEmpty { nonBlank = Array(1..<Rom.entryCount) }
+        // Keep 0 in the mix so a single background can show solo over black.
+        let pool = [0] + nonBlank
+
+        var l1 = pool.randomElement()!
+        var l2 = pool.randomElement()!
+        // If BOTH layers land on blank the screen is pure black — re-roll. Safe:
+        // `pool` always holds at least one non-blank entry.
         while l1 == 0 && l2 == 0 {
-            l1 = Int.random(in: 0..<Rom.entryCount)
-            l2 = Int.random(in: 0..<Rom.entryCount)
+            l1 = pool.randomElement()!
+            l2 = pool.randomElement()!
         }
         layer1 = BackgroundLayer(entry: l1, rom: Rom.shared)
         layer2 = BackgroundLayer(entry: l2, rom: Rom.shared)

@@ -31,6 +31,11 @@ mkdir -p "$DEST_DIR"
 rm -rf "$DEST_DIR/$SAVER_NAME"
 cp -R "$BUILT" "$DEST_DIR/$SAVER_NAME"
 
+# Apple Silicon kills unsigned bundles on launch and won't list them. A proper
+# ad-hoc signature (no Apple account needed) makes it run and appear.
+echo "Ad-hoc signing..."
+codesign --force --deep --sign - "$DEST_DIR/$SAVER_NAME"
+
 echo "Installed. Test it with EITHER:"
 echo "  - System Settings > Screen Saver > pick EarthboundBattle, or"
 echo "  - Run the engine directly (faster):"

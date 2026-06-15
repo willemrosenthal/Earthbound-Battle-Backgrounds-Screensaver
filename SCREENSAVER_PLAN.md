@@ -94,8 +94,8 @@ list in `form.js` is optional flavor we can port later if wanted.
      `bitsPerComponent: 8`, `bytesPerRow: 256*4`, via a `CGDataProvider`.
 3. In `draw(_ rect:)`:
    - `context.interpolationQuality = .none` ← **critical** for crisp retro pixels.
-   - Draw the CGImage stretched to fill the view bounds (optionally letterboxed to
-     keep the 8:7 / chosen aspect ratio with black bars).
+   - Draw the CGImage stretched to fill the **entire** view bounds (no letterbox —
+     we want it to fill the monitor; render with letterbox = 0).
 
 This is plenty fast on the CPU; no Metal required. (If we ever wanted it, a Metal
 texture upload is a drop-in upgrade, but it's unnecessary here.)
@@ -108,9 +108,12 @@ texture upload is a drop-in upgrade, but it's unnecessary here.)
 
 1. **File → New → Project**, macOS tab, **Screen Saver** template (search "Screen
    Saver" in the chooser if the category isn't obvious — its location moves between
-   Xcode versions). Language: **Swift**. Name it `EarthboundBBG`.
+   Xcode versions). Language: **Swift**. Name it `EarthboundBBG`. **Save it into
+   this repo's root folder** so the Xcode project lives alongside the JS reference.
 2. This generates a `ScreenSaverView` subclass + an `Info.plist` with
-   `NSPrincipalClass` already wired to your view.
+   `NSPrincipalClass` already wired to your view. In Xcode 16+, the project uses a
+   **synchronized folder group** — meaning any `.swift` file I drop into that
+   folder on disk appears in the project automatically, no dragging needed.
 3. Replace the generated `draw`/`animateOneFrame` with a moving colored rectangle.
    Build (⌘B), then **install and verify** (see "Install & test loop" below).
    - This proves the toolchain + install path before any porting work.
@@ -160,22 +163,36 @@ Port the files in the order in the table above. Strategy to keep it sane:
 3. `randomize()`: pick `layer1 = Int.random(in: 0..<327)`, `layer2 =
 Int.random(in: 0..<327)` (mirror the web app's range), rebuild the two
    `BackgroundLayer`s, reset alpha (1.0 if layer2 == 0, else 0.5 each — matches
-   `index.js`).
+   `index.js`). **Frameskip is _not_ randomized** — it's a fixed user setting (see
+   Milestone 6) read from defaults.
 4. In `stopAnimation()`: invalidate the timer, call `super`.
+
+**Aspect ratio = match the monitor.** We do _not_ use the web app's letterbox
+values. Instead we render the full 256×224 image (letterbox = 0) and stretch it to
+fill the entire view bounds, so it always fills whatever monitor it's on. (These
+backgrounds are abstract, so a non-uniform stretch reads fine and "matches the
+monitor" by construction.) Each `ScreenSaverView` instance is already sized to its
+own screen, so multi-monitor setups each fill correctly with no extra work.
 
 ### Milestone 6 — Options… configuration sheet
 
 1. Override `hasConfigureSheet { true }` and `configureSheet`.
-2. Small window: a slider/stepper + label "Pick a new background every \_\_\_
-   seconds" (bounds e.g. 3–120), plus OK/Cancel.
+2. Small window with two controls:
+   - **"Pick a new background every \_\_\_ seconds"** — stepper/field, default
+     **10**, bounds 3–120.
+   - **"Animation speed (frameskip)"** — stepper/field, default **1**, bounds 1–10.
+     Higher = faster/more intense distortion (it's how much the time `tick`
+     advances per frame). This is a fixed setting, never randomized.
+   - Plus OK / Cancel.
 3. Persist via:
    ```swift
    let defaults = ScreenSaverDefaults(forModuleWithName: Bundle(for: type(of: self)).bundleIdentifier!)!
-   defaults.set(interval, forKey: "randomizeInterval"); defaults.synchronize()
+   defaults.set(interval, forKey: "randomizeInterval")
+   defaults.set(frameSkip, forKey: "frameSkip")
+   defaults.synchronize()
    ```
-   Read the same key on init/`startAnimation`, with a default when unset.
-4. (Optional) toggles to also randomize aspect ratio / frameskip, or a fixed-layer
-   "favorite" mode. Decide later — not required for v1.
+   Register defaults (`{randomizeInterval: 10, frameSkip: 1}`) and read both on
+   init / `startAnimation` so a changed setting takes effect next run.
 
 ### Milestone 7 — Install / sign / ship
 
@@ -229,11 +246,15 @@ A 3-line shell script for steps 2–4 will save real frustration.
 
 ---
 
-## Open questions for you
+## Decisions (locked in)
 
-1. **Personal use or distribution?** (Decides code signing / notarization.)
-2. Want me to **write all the ported Swift source files now** so you can drop them
-   into the Xcode project, or do you want to go milestone-by-milestone together?
-3. Default randomize interval + bounds? (Proposed: default 10s, range 3–120s.)
-4. Besides interval, should Options also randomize **aspect ratio** / **frameskip**,
-   or keep those at sensible fixed defaults for v1?
+1. **Personal use** — no code signing / notarization. Install via right-click →
+   Open to clear Gatekeeper.
+2. **Project lives inside this repo.** Xcode generates its own project folder; we
+   create it at the repo root (e.g. `./EarthboundBBG/`). All Swift source and the
+   `.dat` resource live in the repo alongside the original JS reference.
+3. **Randomize interval:** default **10s**, range 3–120s, editable in Options.
+4. **Aspect ratio:** match the monitor (fill the screen; no letterbox). Not a
+   setting.
+5. **Frameskip:** a fixed Options setting (default **1**, range 1–10), never
+   randomized.

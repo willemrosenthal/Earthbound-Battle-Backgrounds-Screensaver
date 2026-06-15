@@ -18,6 +18,7 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
     private let checkbox = NSButton()
     private var index = 0
     private var onToggle: ((Int, Bool) -> Void)?
+    private var onPreview: ((Int) -> Void)?
 
     // Live animation state. The palette cycle is stateful (it advances on every
     // overlayFrame call), so we keep one layer per cell and step it each frame.
@@ -35,6 +36,8 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
         thumb.layer?.backgroundColor = NSColor.black.cgColor
         thumb.layer?.borderColor = NSColor.separatorColor.cgColor
         thumb.layer?.borderWidth = 1
+        thumb.toolTip = "Click to preview full screen"
+        thumb.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(thumbClicked)))
         root.addSubview(thumb)
 
         checkbox.setButtonType(.switch)
@@ -47,9 +50,11 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
         view = root
     }
 
-    func configure(index: Int, enabled: Bool, onToggle: @escaping (Int, Bool) -> Void) {
+    func configure(index: Int, enabled: Bool, onToggle: @escaping (Int, Bool) -> Void,
+                   onPreview: @escaping (Int) -> Void) {
         self.index = index
         self.onToggle = onToggle
+        self.onPreview = onPreview
         checkbox.title = "#\(index)"
         checkbox.state = enabled ? .on : .off
         layer = BackgroundLayer(entry: index, rom: Rom.shared)
@@ -64,22 +69,16 @@ final class BackgroundThumbnailItem: NSCollectionViewItem {
         layer.overlayFrame(&dst, letterbox: 0, ticks: tick, alpha: 1, erase: true)
         boostSaturation(&dst, factor: Self.previewSaturation)
         tick += 1
-        thumb.image = Self.image(from: dst)
-    }
-
-    private static func image(from dst: [UInt8]) -> NSImage {
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        guard let provider = CGDataProvider(data: Data(dst) as CFData),
-              let cg = CGImage(width: SNES_WIDTH, height: SNES_HEIGHT, bitsPerComponent: 8, bitsPerPixel: 32,
-                               bytesPerRow: SNES_WIDTH * 4, space: colorSpace, bitmapInfo: bitmapInfo,
-                               provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
-            return NSImage(size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
+        if let cg = makeSNESImage(from: dst) {
+            thumb.image = NSImage(cgImage: cg, size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
         }
-        return NSImage(cgImage: cg, size: NSSize(width: SNES_WIDTH, height: SNES_HEIGHT))
     }
 
     @objc private func toggled() {
         onToggle?(index, checkbox.state == .on)
+    }
+
+    @objc private func thumbClicked() {
+        onPreview?(index)
     }
 }

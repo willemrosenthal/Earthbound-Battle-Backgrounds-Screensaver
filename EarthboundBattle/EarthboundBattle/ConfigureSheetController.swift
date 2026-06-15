@@ -19,6 +19,8 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     private let saturationValueLabel = NSTextField(labelWithString: "")
     private var collectionView: NSCollectionView!
     private var animationTimer: Timer?
+    private var previewWindow: NSWindow?
+    private var previewView: LayerPreviewView?
 
     // Working copy of disabled indices; committed to defaults only on OK.
     private var disabled: Set<Int> = []
@@ -261,10 +263,43 @@ final class ConfigureSheetController: NSObject, NSCollectionViewDataSource {
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: BackgroundThumbnailItem.identifier, for: indexPath) as! BackgroundThumbnailItem
         let index = indexPath.item + Self.firstIndex
-        item.configure(index: index, enabled: !disabled.contains(index)) { [weak self] idx, enabled in
+        item.configure(index: index, enabled: !disabled.contains(index), onToggle: { [weak self] idx, enabled in
             guard let self = self else { return }
             if enabled { self.disabled.remove(idx) } else { self.disabled.insert(idx) }
-        }
+        }, onPreview: { [weak self] idx in
+            self?.showFullScreenPreview(index: idx)
+        })
         return item
+    }
+
+    // MARK: - Full-screen single-layer preview
+
+    private func showFullScreenPreview(index: Int) {
+        guard previewWindow == nil else { return }
+        guard let frame = (window.screen ?? NSScreen.main)?.frame else { return }
+
+        let view = LayerPreviewView(index: index, saturation: BackgroundThumbnailItem.previewSaturation)
+        view.frame = NSRect(origin: .zero, size: frame.size)
+        view.autoresizingMask = [.width, .height]
+        view.onClose = { [weak self] in self?.closeFullScreenPreview() }
+
+        let win = BorderlessKeyWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        win.level = .screenSaver
+        win.isOpaque = true
+        win.backgroundColor = .black
+        win.contentView = view
+        win.makeKeyAndOrderFront(nil)
+        win.makeFirstResponder(view)
+        view.start()
+
+        previewWindow = win
+        previewView = view
+    }
+
+    private func closeFullScreenPreview() {
+        previewView?.stop()
+        previewWindow?.orderOut(nil)
+        previewView = nil
+        previewWindow = nil
     }
 }
